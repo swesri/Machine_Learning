@@ -1,0 +1,342 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
+# For multiple samples, for any dimension, including 1
+def normald(X, mu=None, sigma=None):
+        """ normald:
+        X contains samples, one per row, NxD. 
+        mu is mean vector, Dx1.
+        sigma is covariance matrix, DxD.  """
+    	d = X.shape[1]
+    	if np.any(mu == None):
+    	    mu = np.zeros((d,1))
+    	if np.any(sigma == None):
+    	    sigma = np.eye(d)
+    	detSigma = sigma if d == 1 else np.linalg.det(sigma)
+    	if detSigma == 0:
+    	    raise np.linalg.LinAlgError('normald(): Singular covariance matrix')
+    	sigmaI = 1.0/sigma if d == 1 else np.linalg.inv(sigma)
+    	normConstant = 1.0 / np.sqrt((2*np.pi)**d * detSigma)
+    	diffv = X - mu.T # change column vector mu to be row vector
+    	return normConstant * np.exp(-0.5 * np.sum(np.dot(diffv, sigmaI) * diffv, axis=1))[:,np.newaxis]
+
+
+def makeStandardizeF(X):
+        means = X.mean(axis=0)
+        stds = X.std(axis=0)
+        def standardize(origX):
+            return (origX - means) / stds
+        def unStandardize(stdX):
+            return stds * stdX + means
+        return (standardize, unStandardize)
+def discQDA(X, standardize, mu, Sigma, prior):
+    Xc = standardize(X) - mu
+    if Sigma.size == 1:
+        Sigma = np.asarray(Sigma).reshape((1,1))
+    det = np.linalg.det(Sigma)        
+    if det == 0:
+        raise np.linalg.LinAlgError('discQDA(): Singular covariance matrix')
+    SigmaInv = np.linalg.inv(Sigma)     # pinv in case Sigma is singular
+    return -0.5 * np.log(det) \
+           - 0.5 * np.sum(np.dot(Xc,SigmaInv) * Xc, axis=1) \
+           + np.log(prior)
+
+def discLDA(X,standardize,mu,Sigma,prior):
+	Xc=standardize(X)-mu
+	if Sigma.size==1:
+		Sigma=np.asarray(Sigma).reshape((1,1))
+	det=np.linalg.det(Sigma)
+	if det==0:
+		raise np.linalg.LinAlgError('discLDA():Sigular covarience matrix')
+	SigmaInv=np.linalg.inv(Sigma)
+	#return np.dot(X,np.dot(SigmaInv,mu))-0.5*np.dot(mu.T,np.dot(SigmaInv,mu))+ np.log(prior)
+	return np.dot(X,np.dot(SigmaInv,mu))-0.5*np.dot(np.dot(Xc,SigmaInv),mu)+np.log(prior)
+###################################################################################
+# functions for linear logistic regression					  #	
+###################################################################################
+def g(X,beta):
+    fs = np.exp(np.dot(X, beta))  # N x K-1
+    denom = (1 + np.sum(fs,axis=1)).reshape((-1,1))
+    gs = fs / denom
+    return np.hstack((gs,1/denom))
+
+def makeIndicatorVars(T):
+    # Make sure T is two-dimensiona. Should be nSamples x 1.
+    if T.ndim == 1:
+        T = T.reshape((-1,1))    
+    return (T == np.unique(T)).astype(int)
+def addOnes(X):
+    return np.hstack((np.ones((X.shape[0],1)), X))
+
+
+
+
+D=2 #number of components in each sample or dimension
+N=10 #number of samples in each class
+X1=np.random.normal(1.0,0.1,(N,D))
+T1=np.array([1]*N).reshape((N,1))
+X2=np.random.normal(2.0,0.1,(N,D))
+T2=np.array([2]*N).reshape((N,1))
+X3=np.random.normal(3.0,0.1,(N,D))
+T3=np.array([3]*N).reshape((N,1))
+data=np.hstack((np.vstack((X1,X2,X3)),np.vstack((T1,T2,T3))))
+X=data[:,0:D]
+T=data[:,-1]
+standardize,_=makeStandardizeF(X)
+Xs=standardize(X)
+class1rows=T==1
+class2rows=T==2
+class3rows=T==3
+
+mu1=np.mean(Xs[class1rows,:],axis=0)
+mu2=np.mean(Xs[class2rows,:],axis=0)
+mu3=np.mean(Xs[class3rows,:],axis=0)
+
+
+Sigma1=np.cov(Xs[class1rows,:].T)
+Sigma2=np.cov(Xs[class2rows,:].T)
+Sigma3=np.cov(Xs[class3rows,:].T)
+
+N1=np.sum(class1rows)
+N2=np.sum(class2rows)
+N3=np.sum(class3rows)
+
+N=len(T)
+prior1=N1/float(N)
+prior2=N2/float(N)
+prior3=N3/float(N)
+
+
+
+#calculating linear sigma for LDA
+Sigma=prior1 * Sigma1 + prior2 * Sigma2 + prior3 * Sigma3
+
+
+nNew = 10
+(a,b)=np.meshgrid( np.linspace(0,4,nNew), np.linspace(0,4,nNew))
+newData =np.vstack((a.flat,b.flat)).T
+
+# np.linspace(-5.0,10.0,nNew).repeat(D).reshape((nNew,D))---one dimension
+newDataS = standardize(newData)
+#LDA discriminants
+dl1=discLDA(newData,standardize,mu1,Sigma,prior1)
+dl2=discLDA(newData,standardize,mu2,Sigma,prior2)
+dl3=discLDA(newData,standardize,mu3,Sigma,prior3)
+
+#QDA discriminants
+
+d1=discQDA(newData,standardize,mu1,Sigma1,prior1)
+d2=discQDA(newData,standardize,mu2,Sigma2,prior2)
+d3=discQDA(newData,standardize,mu3,Sigma3,prior3)
+##############################################
+#plotting QDA graphs			   ##
+##############################################
+plt.ion()
+plt.clf()
+
+#code for plotting between classes and data
+
+colors=['blue','red','green']
+
+figure=plt.figure(1)
+plt.clf()
+classes=[1,2,3]
+axes=Axes3D(figure)
+for i in range(3):
+		r=(T==classes[i]).flatten()
+		Xi=X[r,:]
+		axes.scatter(Xi[:,0].ravel(),Xi[:,1].ravel(),T[r,:].ravel(),'o',color=colors[i])
+axes.set_zlabel('Train class')
+
+
+
+#code for plotting  the three curves for p(x|C=k) for k=1,2,3, for x values in a set of test data generated by x = np.linspace(0,4,100), where p(x|C=k) is calculated using means and standard deviations for each class calculated from the training data,
+#plt.subplot(6,1,2)
+
+p1= normald(newDataS,mu1,Sigma1)
+p2= normald(newDataS,mu2,Sigma2)
+p3= normald(newDataS,mu3,Sigma3)
+p1.resize(a.shape)
+p2.resize(a.shape)
+p3.resize(a.shape)
+px=p1*prior1+p2*prior2+p3*prior3
+px.resize(a.shape)
+add=1
+pofc1=p1*prior1/px
+pofc2=p2*prior2/px
+pofc3=p3*prior3/px
+pofc1.resize(a.shape)
+pofc2.resize(a.shape)
+pofc3.resize(a.shape)
+d1.resize(a.shape)
+d2.resize(a.shape)
+d3.resize(a.shape)
+
+
+
+
+
+figure_2=plt.figure()
+axes=Axes3D(figure_2)
+axes.plot_surface(a,b,p1,rstride=1,cstride=1,cmap=cm.jet)
+axes.set_title('p(x|c=k) for 2D')
+
+#figure_3=plt.figure()
+#axes=Axes3D(figure_3)
+axes.plot_surface(a,b,p2,rstride=1,cstride=1,cmap=cm.jet)
+#axes.set_title('p(x|c=2) for 2D')
+
+#figure_4=plt.figure()
+#axes=Axes3D(figure_4)
+axes.plot_surface(a,b,p3,rstride=1,cstride=1,cmap=cm.jet)
+#axes.set_title('p(x|c=3) for 3D')
+
+
+#code for plotting the curve p(x) for the test data......
+figure_5=plt.figure()
+axes=Axes3D(figure_5)
+axes.plot_surface(a,b,px,rstride=1,cstride=1,cmap=cm.jet)
+axes.set_title('p(x) for the test data')
+#code for plotting the curve p(c=k|x)
+figure_6=plt.figure()
+axes=Axes3D(figure_6)
+axes.plot_surface(a,b,pofc1,rstride=1,cstride=1,cmap=cm.jet)
+axes.set_title('QDA p(c=1|x) for 2D')
+figure_7=plt.figure()
+axes=Axes3D(figure_7)
+axes.plot_surface(a,b,pofc2,rstride=1,cstride=1,cmap=cm.jet)
+axes.set_title('QDA p(c=2|x) for 2D')
+figure_8=plt.figure()
+axes=Axes3D(figure_8)
+axes.plot_surface(a,b,pofc3,rstride=1,cstride=1,cmap=cm.jet)
+axes.set_title('QDA p(c=3|x) for 2D')
+#code for plotting the discriminants
+dq=np.vstack((d1,d2,d3))
+figure_9=plt.figure()
+axes=Axes3D(figure_9)
+axes.plot_surface(a,b,d1,rstride=1,cstride=1,color='red')
+axes.plot_surface(a,b,d2,rstride=1,cstride=1,color='green')
+axes.plot_surface(a,b,d3,rstride=1,cstride=1,color='blue')
+axes.set_title('QDA discriminant for 2D')
+
+disc = np.hstack((d1.reshape(-1,1),d2.reshape(-1,1),d3.reshape(-1,1)))
+preTest = np.argmax(disc,axis=1)
+#preTest = np.argmax(np.vstack((d1,d2,d3)),axis=1)
+plt.figure(10)
+#ax = Axes3D(fig10)
+#ax.scatter(newData,(preTest+1), 'o', color = 'green')
+#ax.set_title('QDA Class Prediction for testing data')
+classes=[1,2,3]
+plt.plot(newData,(preTest+1),'o')
+#[:,0].reshape((100,100)),newData[:,1].reshape((100,100))
+
+
+
+
+
+
+
+'''
+preTest = np.argmax(np.vstack((d1,d2,d3)),axis=0)
+fig10 = plt.figure()
+ax = Axes3D(fig10)
+ax.scatter(newData[:,0].reshape((10,10)),newData[:,1].reshape((10,10)),(preTest+1), '1', color = 'green')
+ax.set_title('QDA Class Prediction for testing data')
+#code for plotting  the class predicted by the classifier for the test data.
+preTest = np.argmax(np.vstack((d1,d2,d3)),axis=0)
+figure_10=plt.figure()
+axes=Axes3D(figure_10)
+axes.scatter(newData[:,0].reshape((10,10)),newData[:,1].reshape((10,10)),(preTest+1),'1',color='green')
+axes.set_title('QDA class prediction for testing data')
+'''
+'''
+############################################################
+#########Plotting graphs for LDA############################
+############################################################
+
+plt.ion()
+plt.figure(2)
+#code for plotting between classes and data
+plt.subplot(6,1,1)
+plt.plot(X[class1rows],T[class1rows],"ro")
+plt.plot(X[class2rows],T[class2rows],"go")
+plt.plot(X[class3rows],T[class3rows],"bo")
+plt.ylabel("class values")
+
+#code for plotting  the three curves for p(x|C=k) for k=1,2,3, for x values in a set of test data generated by x = np.linspace(0,4,100), where p(x|C=k) is calculated using means and standard deviations for each class calculated from the training data,
+plt.subplot(6,1,2)
+newDataS = standardize(newData)
+probs = np.hstack((normald(newDataS,mu1,Sigma),normald(newDataS,mu2,Sigma),normald(newDataS,mu3,Sigma)))
+plt.plot(newData[:,0],probs)
+plt.ylabel("LDA P(x|Class=k)\n from disc funcs", multialignment="center")
+#code for plotting the curve p(x) for the test data......
+
+plt.subplot(6,1,3)
+p1= normald(newDataS,mu1,Sigma)
+p2= normald(newDataS,mu2,Sigma)
+p3= normald(newDataS,mu3,Sigma)
+px=p1*prior1+p2*prior2+p3*prior3
+plt.plot(newData,px)
+plt.ylabel("p(x)");
+#code for plotting the curve p(c=k|x)
+pofc1=p1*prior1/px
+pofc2=p2*prior2/px
+pofc3=p3*prior3/px
+plt.subplot(6,1,4)
+plt.plot(newData,np.hstack((pofc1,pofc2,pofc3)))
+plt.ylabel("p(c=k|x)")
+#code for plotting the discriminants
+plt.subplot(6,1,5)
+plt.plot(newDataS,dl1,"b")
+plt.plot(newDataS,dl2,"g")
+plt.plot(newDataS,dl3,"y")
+plt.ylabel("QDA discriminants");
+
+#code for plotting  the class predicted by the classifier for the test data.
+plt.subplot(6,1,6)
+preTest = np.argmax(np.vstack((dl1,dl2,dl3)),axis=0)
+plt.plot(newData,preTest,'o')
+plt.ylabel("Predicted class by QDA")
+
+#######################################################################################
+#code for linear logistic regression						      #
+######################################################################################
+
+Xtrains=addOnes(Xs)
+TI=makeIndicatorVars(T)
+beta=np.zeros((Xtrains.shape[1],TI.shape[1]-1))
+alpha=0.0001
+for step in range(1000):
+	gs=g(Xtrains,beta)
+	beta=beta+alpha*np.dot(Xtrains.T,TI[:,:-1]-gs[:,:-1])
+	likelihoodPerSample=np.exp(np.sum(TI*np.log(gs))/Xtrains.shape[1])
+
+logregOutput=g(Xtrains,beta)
+predictedTrain=np.argmax(logregOutput,axis=1)
+logregOutput=g(addOnes(newDataS),beta)
+predictedTest=np.argmax(logregOutput,axis=1)
+
+predictedTrain.resize((100,1))
+predictedTrain.resize((100,1))
+
+############################################################
+#####################Plotting for Linear logistic regression#
+#############################################################
+plt.ion()
+plt.figure(3)
+plt.clf()
+plt.subplot(3,1,1)
+plt.plot(X[class1rows],T[class1rows],"ro")
+plt.plot(X[class2rows],T[class2rows],"go")
+plt.plot(X[class3rows],T[class3rows],"bo")
+plt.ylabel("class values")
+
+plt.subplot(3,1,2)
+for k in range(3):
+	plt.plot(newData,logregOutput[:,k]+1)
+plt.ylabel("P(C=k|x)")
+
+plt.subplot(3,1,3)
+plt.plot(newData,predictedTest,'o')
+'''
